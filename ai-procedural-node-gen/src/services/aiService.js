@@ -77,13 +77,13 @@ export function sanitize(g) {
 }
 
 export async function generateNodesFromPrompt(userPrompt) {
-  let aiError = KEY ? '' : 'нет ключа VITE_OPENROUTER_KEY';
-  if (KEY) {
+  let aiError = '';
+  { // без ключа в браузере запрос идёт через серверный прокси /api/generate
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const r = await fetch(KEY ? 'https://openrouter.ai/api/v1/chat/completions' : '/api/generate', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': window.location.origin, 'X-Title': 'AI NodeGen Studio' },
+          headers: KEY ? { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': window.location.origin, 'X-Title': 'AI NodeGen Studio' } : { 'Content-Type': 'application/json' },
           // не все модели понимают response_format, поэтому вторая попытка идёт без него
           body: JSON.stringify({ model: MODEL, temperature: 0.4, ...(attempt === 0 ? { response_format: { type: 'json_object' } } : {}),
             messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: userPrompt }] }),
@@ -92,7 +92,7 @@ export async function generateNodesFromPrompt(userPrompt) {
         if (!r.ok) {
           aiError = `${r.status}: ${data?.error?.message || r.statusText}`;
           console.warn('OpenRouter:', aiError, data);
-          if ([401, 402, 403, 429].includes(r.status)) break; // повтор не поможет: ключ, оплата, лимит
+          if ([401, 402, 403, 404, 405, 429, 500].includes(r.status)) break; // повтор не поможет: ключ, оплата, лимит
           continue;
         }
         const text = data.choices?.[0]?.message?.content || '';
