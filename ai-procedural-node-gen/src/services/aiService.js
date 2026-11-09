@@ -5,7 +5,8 @@ const env = import.meta.env || {};
 // убираем случайные пробелы и кавычки, которые часто попадают при копировании ключа
 const clean = (v) => String(v || '').trim().replace(/^["']+|["']+$/g, '').trim();
 const KEY = clean(env.VITE_OPENROUTER_KEY);
-const MODEL = clean(env.VITE_AI_MODEL) || 'google/gemini-2.5-flash';
+// список моделей через запятую (до 3): если первая недоступна, OpenRouter пробует следующую
+const MODELS = (clean(env.VITE_AI_MODEL) || 'google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free,cohere/north-mini-code:free').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 3);
 
 const catalogText = Object.entries(CATALOG).map(([t]) => {
   const s = socketsOf(t); return `${t}: inputs [${s.ins.join(', ')}] outputs [${s.outs.join(', ')}]`;
@@ -85,7 +86,7 @@ export async function generateNodesFromPrompt(userPrompt) {
           method: 'POST',
           headers: KEY ? { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': window.location.origin, 'X-Title': 'AI NodeGen Studio' } : { 'Content-Type': 'application/json' },
           // не все модели понимают response_format, поэтому вторая попытка идёт без него
-          body: JSON.stringify({ model: MODEL, temperature: 0.4, ...(attempt === 0 ? { response_format: { type: 'json_object' } } : {}),
+          body: JSON.stringify({ ...(MODELS.length > 1 ? { models: MODELS } : { model: MODELS[0] }), temperature: 0.4, ...(attempt === 0 ? { response_format: { type: 'json_object' } } : {}),
             messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: userPrompt }] }),
         });
         const data = await r.json().catch(() => ({}));
