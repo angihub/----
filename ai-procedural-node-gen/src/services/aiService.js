@@ -2,8 +2,10 @@ import { CATALOG, ENUMS, socketsOf } from './nodeCatalog.js';
 
 // Ключ и модель — в .env (VITE_OPENROUTER_KEY, VITE_AI_MODEL). НЕ хардкодь ключ в коде.
 const env = import.meta.env || {};
-const KEY = env.VITE_OPENROUTER_KEY;
-const MODEL = env.VITE_AI_MODEL || 'google/gemini-2.5-flash';
+// убираем случайные пробелы и кавычки, которые часто попадают при копировании ключа
+const clean = (v) => String(v || '').trim().replace(/^["']+|["']+$/g, '').trim();
+const KEY = clean(env.VITE_OPENROUTER_KEY);
+const MODEL = clean(env.VITE_AI_MODEL) || 'google/gemini-2.5-flash';
 
 const catalogText = Object.entries(CATALOG).map(([t]) => {
   const s = socketsOf(t); return `${t}: inputs [${s.ins.join(', ')}] outputs [${s.outs.join(', ')}]`;
@@ -75,23 +77,32 @@ export function sanitize(g) {
 }
 
 export async function generateNodesFromPrompt(userPrompt) {
+  let aiError = KEY ? '' : 'нет ключа VITE_OPENROUTER_KEY';
   if (KEY) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': window.location.origin, 'X-Title': 'AI NodeGen Studio' },
-          body: JSON.stringify({ model: MODEL, temperature: 0.4, response_format: { type: 'json_object' },
+          // не все модели понимают response_format, поэтому вторая попытка идёт без него
+          body: JSON.stringify({ model: MODEL, temperature: 0.4, ...(attempt === 0 ? { response_format: { type: 'json_object' } } : {}),
             messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: userPrompt }] }),
         });
-        const text = (await r.json()).choices[0].message.content;
-        const g = sanitize(JSON.parse(text.match(/\{[\s\S]*\}/)[0]));
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          aiError = `${r.status}: ${data?.error?.message || r.statusText}`;
+          console.warn('OpenRouter:', aiError, data);
+          if ([401, 402, 403, 429].includes(r.status)) break; // повтор не поможет: ключ, оплата, лимит
+          continue;
+        }
+        const text = data.choices?.[0]?.message?.content || '';
+        const g = sanitize(JSON.parse(text.match(/\{[\s\S]*\}/)?.[0]));
         if (g) return { ...g, source: 'ai' };
-        console.warn('ИИ вернул невалидный граф, попытка', attempt + 1);
-      } catch (e) { console.warn('Ошибка LLM:', e); }
+        aiError = 'модель вернула граф, не прошедший проверку';
+      } catch (e) { aiError = String(e.message || e); console.warn('Ошибка LLM:', e); }
     }
-  } else console.warn('Нет VITE_OPENROUTER_KEY — работает локальный генератор.');
-  return { ...fallbackGraph(userPrompt), source: 'preset' };
+  }
+  return { ...fallbackGraph(userPrompt), source: 'preset', aiError };
 }
 
 // ---------- Локальный запасной генератор: нормальный граф, цвета по ключевым основам слов ----------
