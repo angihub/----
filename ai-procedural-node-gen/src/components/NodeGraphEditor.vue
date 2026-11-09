@@ -34,7 +34,7 @@ const propText = (n) => {
   <div class="graph-editor-wrapper">
     <div class="editor-header">
       <h3>Граф нод (формат Blender Shader Editor)</h3>
-      <span class="status-badge" v-if="graphData">{{ graphData.source === 'ai' ? 'ИИ' : 'Локальный пресет (ИИ не ответил)' }} · {{ graphData.nodes.length }} нод · {{ graphData.links.length }} связей</span>
+      <span class="status-badge" v-if="graphData">{{ graphData.source === 'ai' ? 'ИИ' : 'Локальный пресет: ' + (graphData.aiError || 'ИИ не ответил') }} · {{ graphData.nodes.length }} нод · {{ graphData.links.length }} связей</span>
     </div>
     <div v-if="!graphData" class="empty-graph"><p>Нажмите «Сгенерировать материал», чтобы построить граф нод</p></div>
     <div v-else class="canvas">
