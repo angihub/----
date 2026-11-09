@@ -22,7 +22,7 @@ Return ONLY JSON: {"materialName":"..","nodes":[{"id":"n1","type":"..","inputs":
 - inputs: numbers, "#rrggbb" for colors, [x,y,z] for Mapping Location/Scale. Set only sockets that are NOT linked.
 - props (allowed values):\n${propDoc}\n  ColorRamp: {"stops":[[pos,"#hex"],...]} 2-6 stops; Math: {"clamp":bool}; MapRange: {"clamp":bool}
 - Wave Texture (BANDS/RINGS, Distortion>0 + Detail) = wood grain, marble veins, stripes. Brick/Checker/Gradient Textures need TexCoord.UV (not Generated) -> Mapping as Vector. HueSaturation/BrightContrast/Invert/MapRange/Clamp refine colors and masks.
-- Structure (12-20 nodes): TexCoord.Generated -> Mapping.Vector -> Vector of every texture. Large noise for color zones, fine noise for grain, Voronoi EDGE for cracks/veins ONLY if the material really has them (stone, lava, dry earth, marble) — smooth or soft materials must have NO cracks or cell lines, multi-tone ColorRamps (3-5 real-world colors), Mix OVERLAY/MULTIPLY to combine, a separate ColorRamp for Roughness, Math/Mix -> Bump.Height, Bump.Normal -> PrincipledBSDF.Normal. Use Emission only for glowing materials.
+- Structure (12-20 nodes): TexCoord.Generated -> Mapping.Vector -> Vector of every texture. Large noise for color zones, fine noise for grain, Voronoi EDGE for cracks/veins ONLY if the material really has them (stone, lava, dry earth, marble) — smooth or soft materials must have NO cracks or cell lines, multi-tone ColorRamps (3-5 real-world colors), Mix OVERLAY/MULTIPLY to combine, a separate ColorRamp for Roughness, Math/Mix -> Bump.Height, Bump.Normal -> PrincipledBSDF.Normal. Use Emission only for glowing materials. Feed grayscale Fac outputs (not the random-RGB Color output of Noise/Voronoi) into Mix and Color Ramp inputs, otherwise rainbow tints appear.
 - Finish with PrincipledBSDF.BSDF -> MaterialOutput.Surface. Use physical values (metals Metallic≈1, stone/wood/plastic 0).`;
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -79,10 +79,10 @@ export function sanitize(g) {
 
 export async function generateNodesFromPrompt(userPrompt) {
   let aiError = '';
-  { // без ключа в браузере запрос идёт через серверный прокси /generate
+  { // без ключа в браузере запрос идёт через серверный прокси /api/generate
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const r = await fetch(KEY ? 'https://openrouter.ai/api/v1/chat/completions' : '/generate', {
+        const r = await fetch(KEY ? 'https://openrouter.ai/api/v1/chat/completions' : '/api/generate', {
           method: 'POST',
           headers: KEY ? { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': window.location.origin, 'X-Title': 'AI NodeGen Studio' } : { 'Content-Type': 'application/json' },
           // не все модели понимают response_format, поэтому вторая попытка идёт без него
@@ -118,6 +118,7 @@ const PAL = [
   [/мрамор|marble|бел/, ['#bdbdc4', '#ececf0', '#ffffff'], { r: [0.1, 0.3], cracks: 0.25 }],
   [/дерев|wood|доск/, ['#3b2110', '#7a4a24', '#b98550'], { r: [0.5, 0.8], wood: 1 }],
   [/черн|black|уголь|базальт/, ['#050507', '#16161c', '#3a3a44'], { r: [0.4, 0.8] }],
+  [/алмаз|кристалл|бриллиант|diamond|crystal/, ['#8fc9e8', '#d6f1ff', '#ffffff'], { r: [0.03, 0.2], cracks: 0.2 }],
   [/камен|stone|rock|скал|гранит/, ['#2b2b2f', '#6b6b73', '#b4b4bc'], { r: [0.6, 0.9], cracks: 0.35 }],
 ];
 const gray = (v) => '#' + Math.round(v * 255).toString(16).padStart(2, '0').repeat(3);
@@ -138,7 +139,7 @@ export function fallbackGraph(prompt) {
   ['big', 'fine', ...(hasV ? ['vor'] : [])].forEach((id) => ln('map.Vector', `${id}.Vector`));
   add('ramp', 'ColorRamp', {}, { stops: [[0.25, cols[0]], [0.55, cols[1]], [0.85, cols[2]]] }); ln(wood ? 'wave.Fac' : 'big.Fac', 'ramp.Fac');
   if (wood) { add('wave', 'WaveTexture', { Scale: 5, Distortion: 7, Detail: 3 }, { type: 'BANDS', dir: 'Z' }); ln('map.Vector', 'wave.Vector'); }
-  add('grain', 'Mix', { Factor: 0.4 }, { blend: 'OVERLAY' }); ln('ramp.Color', 'grain.A'); ln('fine.Color', 'grain.B');
+  add('grain', 'Mix', { Factor: 0.4 }, { blend: 'OVERLAY' }); ln('ramp.Color', 'grain.A'); ln('fine.Fac', 'grain.B');
   if (cracks > 0) {
     add('crk', 'ColorRamp', {}, { stops: [[0, '#101010'], [0.12, '#ffffff']] }); ln('vor.Distance', 'crk.Fac');
     add('tint', 'Mix', { Factor: cracks }, { blend: 'MULTIPLY' }); ln('grain.Result', 'tint.A'); ln('crk.Color', 'tint.B');
@@ -162,7 +163,7 @@ function brickGraph(prompt) {
   add('tc', 'TexCoord'); add('map', 'Mapping'); ln('tc.UV', 'map.Vector');
   add('brick', 'BrickTexture', { Scale: 4, 'Mortar Size': 0.03 }); ln('map.Vector', 'brick.Vector');
   add('fine', 'NoiseTexture', { Scale: 30, Detail: 8, Roughness: 0.6 }); ln('tc.Generated', 'fine.Vector');
-  add('grime', 'Mix', { Factor: 0.45 }, { blend: 'OVERLAY' }); ln('brick.Color', 'grime.A'); ln('fine.Color', 'grime.B');
+  add('grime', 'Mix', { Factor: 0.45 }, { blend: 'OVERLAY' }); ln('brick.Color', 'grime.A'); ln('fine.Fac', 'grime.B');
   add('inv', 'Math', { Value: 1 }, { op: 'SUBTRACT' }); ln('brick.Fac', 'inv.Value_001');
   add('h', 'Math', {}, { op: 'MULTIPLY' }); ln('inv.Value', 'h.Value'); ln('fine.Fac', 'h.Value_001');
   add('bump', 'Bump', { Strength: 0.8 }); ln('h.Value', 'bump.Height');
