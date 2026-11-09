@@ -79,10 +79,10 @@ export function sanitize(g) {
 
 export async function generateNodesFromPrompt(userPrompt) {
   let aiError = '';
-  { // без ключа в браузере запрос идёт через серверный прокси /api/generate
+  { // без ключа в браузере запрос идёт через серверный прокси /generate
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const r = await fetch(KEY ? 'https://openrouter.ai/api/v1/chat/completions' : '/api/generate', {
+        const r = await fetch(KEY ? 'https://openrouter.ai/api/v1/chat/completions' : '/generate', {
           method: 'POST',
           headers: KEY ? { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': window.location.origin, 'X-Title': 'AI NodeGen Studio' } : { 'Content-Type': 'application/json' },
           // не все модели понимают response_format, поэтому вторая попытка идёт без него
